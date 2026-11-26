@@ -20,6 +20,7 @@ export interface MatchProfile {
 export interface Venue {
   id: string;
   name: string;
+  area: "판교역" | "삼평동" | "백현동";
   location: string;
   capacity: number;
   eventPrice: number;
@@ -27,6 +28,8 @@ export interface Venue {
   isNewBoost?: boolean;
   rating: number;
   tags: string[];
+  /** 예약 가능한 날짜|시간 슬롯 목록 (실제 DB에서는 availability_slots 테이블) */
+  availableSlots: string[];
 }
 
 export interface CateringOption {
@@ -37,23 +40,33 @@ export interface CateringOption {
   description: string;
 }
 
+export interface EventConditions {
+  requireCurrentEmployee: boolean;
+  minAge: number;
+  maxAge: number;
+  minMannerTemp: number;
+}
+
 export interface GroupEvent {
   id: string;
   title: string;
   theme: "로테이션 소개팅" | "와인 미팅" | "보드게임" | "IT 네트워킹";
+  dateValue: string; // YYYY-MM-DD
   dateText: string;
-  timeText: string;
+  timeSlot: "19:30 ~ 21:30" | "15:00 ~ 17:00" | "18:30 ~ 20:30";
+  daysLeft: number; // 아고다식 차등 환불 계산용 D-Day
   venue: Venue;
   catering: CateringOption | null;
   hostName: string;
   hostCompany: string;
   hostGrade: "일반 호스트" | "우수 호스트" | "슈퍼 호스트";
   hostTemp: number;
+  isMyHosted?: boolean;
   maleCount: number;
   maleCapacity: number;
   femaleCount: number;
   femaleCapacity: number;
-  requireCurrentEmployee: boolean;
+  conditions: EventConditions;
   ticketPrice: number;
   breakdown: {
     venuePerPerson: number;
@@ -63,7 +76,7 @@ export interface GroupEvent {
   };
   participantCompanies: string[];
   avgMannerTemp: number;
-  status: "RECRUITING" | "CONFIRMED" | "IN_PROGRESS";
+  status: "RECRUITING" | "CONFIRMED" | "IN_PROGRESS" | "DISSOLVED";
 }
 
 export interface ChatRoom {
@@ -82,6 +95,22 @@ export interface ChatRoom {
     text: string;
     time: string;
   }[];
+}
+
+export const REFUND_TIERS = [
+  { label: "모임 7일 전 이상", rate: 100, note: "전액 무료 취소 (아고다 무료취소형)" },
+  { label: "모임 3일 ~ 6일 전", rate: 70, note: "장소 예약 위약금 30% 공제" },
+  { label: "모임 1일 ~ 2일 전", rate: 50, note: "대체 인원 충원 및 식음료 준비 비용" },
+  { label: "모임 당일 취소 / 노쇼", rate: 0, note: "환불 불가 + 매너온도 -2.0°C 차감" },
+];
+
+export function calculateRefund(ticketPrice: number, daysLeft: number) {
+  if (daysLeft >= 7) return { rate: 100, amount: ticketPrice, penaltyTemp: 0 };
+  if (daysLeft >= 3)
+    return { rate: 70, amount: Math.round(ticketPrice * 0.7), penaltyTemp: 0 };
+  if (daysLeft >= 1)
+    return { rate: 50, amount: Math.round(ticketPrice * 0.5), penaltyTemp: 0 };
+  return { rate: 0, amount: 0, penaltyTemp: -2.0 };
 }
 
 export const MOCK_PROFILES: MatchProfile[] = [
@@ -122,7 +151,7 @@ export const MOCK_PROFILES: MatchProfile[] = [
     nickname: "하은",
     age: 27,
     gender: "F",
-    companyName: "비바리퍼블리카(토스) 계열",
+    companyName: "비바리퍼블리카(토스)",
     companyType: "스타트업",
     companyStatus: "FORMER_EMPLOYEE",
     jobRole: "서비스 기획자",
@@ -155,16 +184,24 @@ export const MOCK_VENUES: Venue[] = [
   {
     id: "v1",
     name: "라운지 판교 아지트",
+    area: "판교역",
     location: "판교역 1번 출구 도보 4분",
     capacity: 20,
     eventPrice: 240000,
     isAdBoosted: true,
     rating: 4.9,
     tags: ["프라이빗 룸", "조명 맛집", "음향 완비"],
+    availableSlots: [
+      "2026-12-04|19:30 ~ 21:30",
+      "2026-12-05|15:00 ~ 17:00",
+      "2026-12-05|19:30 ~ 21:30",
+      "2026-12-06|15:00 ~ 17:00",
+    ],
   },
   {
     id: "v2",
     name: "테이블634 와인바",
+    area: "판교역",
     location: "알파돔시티 라스트리트 2층",
     capacity: 16,
     eventPrice: 200000,
@@ -172,16 +209,42 @@ export const MOCK_VENUES: Venue[] = [
     isNewBoost: true,
     rating: 4.8,
     tags: ["NEW 입점", "와인 콜키지", "분위기"],
+    availableSlots: [
+      "2026-12-04|19:30 ~ 21:30",
+      "2026-12-05|19:30 ~ 21:30",
+    ],
   },
   {
     id: "v3",
     name: "삼평동 보드 & 커피 스튜디오",
+    area: "삼평동",
     location: "삼평동 유스페이스2 인근",
     capacity: 12,
     eventPrice: 120000,
     isAdBoosted: false,
     rating: 4.7,
     tags: ["가성비", "보드게임 구비", "소규모"],
+    availableSlots: [
+      "2026-12-05|15:00 ~ 17:00",
+      "2026-12-06|15:00 ~ 17:00",
+      "2026-12-06|18:30 ~ 20:30",
+    ],
+  },
+  {
+    id: "v4",
+    name: "백현동 카페거리 프라이빗 룸",
+    area: "백현동",
+    location: "백현동 카페거리 도보 3분",
+    capacity: 14,
+    eventPrice: 160000,
+    isAdBoosted: false,
+    rating: 4.8,
+    tags: ["조용한 분위기", "주차 가능"],
+    availableSlots: [
+      "2026-12-04|18:30 ~ 20:30",
+      "2026-12-05|15:00 ~ 17:00",
+      "2026-12-06|18:30 ~ 20:30",
+    ],
   },
 ];
 
@@ -207,8 +270,10 @@ export const MOCK_EVENTS: GroupEvent[] = [
     id: "e1",
     title: "금요일 퇴근 후 판교 6:6 로테이션 와인 미팅",
     theme: "와인 미팅",
-    dateText: "11월 28일 (금)",
-    timeText: "19:30 ~ 21:30",
+    dateValue: "2026-12-04",
+    dateText: "12월 4일 (금)",
+    timeSlot: "19:30 ~ 21:30",
+    daysLeft: 8,
     venue: MOCK_VENUES[0],
     catering: MOCK_CATERINGS[1],
     hostName: "호스트 제이",
@@ -219,7 +284,12 @@ export const MOCK_EVENTS: GroupEvent[] = [
     maleCapacity: 6,
     femaleCount: 5,
     femaleCapacity: 6,
-    requireCurrentEmployee: true,
+    conditions: {
+      requireCurrentEmployee: true,
+      minAge: 26,
+      maxAge: 35,
+      minMannerTemp: 36.5,
+    },
     ticketPrice: 53000,
     breakdown: {
       venuePerPerson: 20000,
@@ -235,8 +305,10 @@ export const MOCK_EVENTS: GroupEvent[] = [
     id: "e2",
     title: "토요일 오후 가볍게 즐기는 4:4 보드게임 소개팅",
     theme: "보드게임",
-    dateText: "11월 29일 (토)",
-    timeText: "15:00 ~ 17:00",
+    dateValue: "2026-12-05",
+    dateText: "12월 5일 (토)",
+    timeSlot: "15:00 ~ 17:00",
+    daysLeft: 2,
     venue: MOCK_VENUES[2],
     catering: MOCK_CATERINGS[0],
     hostName: "호스트 민트",
@@ -247,7 +319,12 @@ export const MOCK_EVENTS: GroupEvent[] = [
     maleCapacity: 4,
     femaleCount: 4,
     femaleCapacity: 4,
-    requireCurrentEmployee: false,
+    conditions: {
+      requireCurrentEmployee: false,
+      minAge: 25,
+      maxAge: 34,
+      minMannerTemp: 36.0,
+    },
     ticketPrice: 39000,
     breakdown: {
       venuePerPerson: 15000,
@@ -263,8 +340,10 @@ export const MOCK_EVENTS: GroupEvent[] = [
     id: "e3",
     title: "판교 IT 직군 퇴근길 5:5 스피드 데이팅 (진행 중 데모)",
     theme: "로테이션 소개팅",
-    dateText: "오늘 (수)",
-    timeText: "19:30 ~ 21:15",
+    dateValue: "2026-11-26",
+    dateText: "오늘 (목)",
+    timeSlot: "19:30 ~ 21:30",
+    daysLeft: 0,
     venue: MOCK_VENUES[1],
     catering: null,
     hostName: "호스트 루카스",
@@ -275,7 +354,12 @@ export const MOCK_EVENTS: GroupEvent[] = [
     maleCapacity: 5,
     femaleCount: 5,
     femaleCapacity: 5,
-    requireCurrentEmployee: true,
+    conditions: {
+      requireCurrentEmployee: true,
+      minAge: 27,
+      maxAge: 36,
+      minMannerTemp: 37.0,
+    },
     ticketPrice: 35000,
     breakdown: {
       venuePerPerson: 20000,

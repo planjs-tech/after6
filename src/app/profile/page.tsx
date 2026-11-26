@@ -7,6 +7,7 @@ import {
   Clock,
   LogIn,
   MapPin,
+  Plus,
   RefreshCw,
   Shield,
   ShieldCheck,
@@ -21,11 +22,12 @@ import {
 import { useApp } from "@/lib/appContext";
 
 export default function ProfilePage() {
-  const { user, setUser } = useApp();
+  const { user, setUser, addBlockedCompany, removeBlockedCompany } = useApp();
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
   const [emailInput, setEmailInput] = useState("");
+  const [blockCompanyInput, setBlockCompanyInput] = useState("");
   const [newCompanyName, setNewCompanyName] = useState("");
   const [newCompanyDomain, setNewCompanyDomain] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -45,12 +47,11 @@ export default function ProfilePage() {
     e.preventDefault();
     if (!emailInput.includes("@")) return;
     const domain = emailInput.split("@")[1];
-    const companyGuess =
-      domain.includes("naver")
-        ? "네이버"
-        : domain.includes("kakao")
-        ? "카카오"
-        : domain.split(".")[0].toUpperCase();
+    const companyGuess = domain.includes("naver")
+      ? "네이버"
+      : domain.includes("kakao")
+      ? "카카오"
+      : domain.split(".")[0].toUpperCase();
 
     setUser((prev) => ({
       ...prev,
@@ -75,6 +76,14 @@ export default function ProfilePage() {
     );
     setNewCompanyName("");
     setNewCompanyDomain("");
+  };
+
+  const handleAddBlockedCompany = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!blockCompanyInput.trim()) return;
+    addBlockedCompany(blockCompanyInput);
+    setToast(`'${blockCompanyInput.trim()}' 소속 회원과 매칭되지 않도록 차단했습니다.`);
+    setBlockCompanyInput("");
   };
 
   return (
@@ -109,7 +118,7 @@ export default function ProfilePage() {
               </div>
               <div>
                 <h2 className="text-lg font-extrabold text-slate-900">
-                  {user.nickname}
+                  {user.nickname} ({user.age}세)
                 </h2>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <CompanyBadge
@@ -195,8 +204,8 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* GPS 생활권 & 지인 차단 설정 */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+        {/* 지인 & 특정 회사 차단 설정 */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-rose-500" />
@@ -206,7 +215,9 @@ export default function ProfilePage() {
             </div>
             <button
               onClick={() =>
-                setToast("현재 위치(성남시 분당구 삼평동)로 생활권이 갱신되었습니다.")
+                setToast(
+                  "현재 위치(성남시 분당구 삼평동)로 생활권이 갱신되었습니다."
+                )
               }
               className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
             >
@@ -220,7 +231,7 @@ export default function ProfilePage() {
               <Shield className="h-4 w-4 text-emerald-600" />
               <div>
                 <p className="text-sm font-bold text-slate-900">
-                  동일 회사 동료 자동 차단
+                  내 회사({user.companyName}) 동료 자동 차단
                 </p>
                 <p className="text-[11px] text-slate-500">
                   연락처 {user.blockedPhoneCount}명 차단 동기화됨
@@ -238,6 +249,76 @@ export default function ProfilePage() {
               }
               className="h-5 w-5 accent-rose-500"
             />
+          </div>
+
+          {/* 특정 회사 추가 차단 */}
+          <div className="border-t border-slate-100 pt-3 space-y-2.5">
+            <div>
+              <p className="text-sm font-bold text-slate-900">
+                특정 회사 추가 차단 (전 직장 · 거래처 등)
+              </p>
+              <p className="text-[11px] text-slate-500">
+                차단한 회사 소속 회원은 1:1 매칭 추천에서 즉시 제외됩니다.
+              </p>
+            </div>
+
+            <form onSubmit={handleAddBlockedCompany} className="flex gap-2">
+              <input
+                type="text"
+                value={blockCompanyInput}
+                onChange={(e) => setBlockCompanyInput(e.target.value)}
+                placeholder="차단할 회사명 입력 (예: 네이버, 넥슨)"
+                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-rose-400"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                차단
+              </button>
+            </form>
+
+            {/* 빠른 추가 칩 */}
+            <div className="flex flex-wrap gap-1.5">
+              {["네이버", "카카오", "넥슨코리아", "비바리퍼블리카(토스)"].map(
+                (sample) =>
+                  !user.blockedCompanies.includes(sample) && (
+                    <button
+                      key={sample}
+                      type="button"
+                      onClick={() => {
+                        addBlockedCompany(sample);
+                        setToast(`'${sample}' 회사를 차단 목록에 추가했습니다.`);
+                      }}
+                      className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                    >
+                      + {sample}
+                    </button>
+                  )
+              )}
+            </div>
+
+            {/* 현재 차단된 회사 목록 */}
+            {user.blockedCompanies.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {user.blockedCompanies.map((c) => (
+                  <span
+                    key={c}
+                    className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-700"
+                  >
+                    🚫 {c}
+                    <button
+                      type="button"
+                      onClick={() => removeBlockedCompany(c)}
+                      className="ml-0.5 text-rose-500 hover:text-rose-800"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

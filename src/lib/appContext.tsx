@@ -15,21 +15,27 @@ interface UserProfileState {
   isPhoneVerified: boolean;
   isGpsVerified: boolean;
   nickname: string;
+  age: number;
   companyName: string;
   companyStatus: CompanyStatus;
   daysUntilExpire: number;
   mannerTemp: number;
   blockSameCompany: boolean;
+  blockedCompanies: string[];
   blockedPhoneCount: number;
 }
 
 interface AppContextValue {
   user: UserProfileState;
   setUser: React.Dispatch<React.SetStateAction<UserProfileState>>;
+  addBlockedCompany: (company: string) => void;
+  removeBlockedCompany: (company: string) => void;
   events: GroupEvent[];
   setEvents: React.Dispatch<React.SetStateAction<GroupEvent[]>>;
   joinedEventIds: string[];
   joinEvent: (eventId: string) => void;
+  cancelEventJoin: (eventId: string) => void;
+  dissolveEvent: (eventId: string) => void;
   likedProfileIds: string[];
   likeProfile: (profileId: string) => void;
   chats: ChatRoom[];
@@ -47,11 +53,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isPhoneVerified: true,
     isGpsVerified: true,
     nickname: "테드",
+    age: 30,
     companyName: "판교테크랩스",
     companyStatus: "VERIFIED",
     daysUntilExpire: 142,
     mannerTemp: 37.8,
     blockSameCompany: true,
+    blockedCompanies: ["카카오"],
     blockedPhoneCount: 48,
   });
 
@@ -63,10 +71,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     { id: string; eventTitle: string; reason: string; createdAt: string }[]
   >([]);
 
+  const addBlockedCompany = (company: string) => {
+    const trimmed = company.trim();
+    if (!trimmed) return;
+    setUser((prev) => ({
+      ...prev,
+      blockedCompanies: prev.blockedCompanies.includes(trimmed)
+        ? prev.blockedCompanies
+        : [...prev.blockedCompanies, trimmed],
+    }));
+  };
+
+  const removeBlockedCompany = (company: string) => {
+    setUser((prev) => ({
+      ...prev,
+      blockedCompanies: prev.blockedCompanies.filter((c) => c !== company),
+    }));
+  };
+
   const joinEvent = (eventId: string) => {
     setJoinedEventIds((prev) =>
       prev.includes(eventId) ? prev : [...prev, eventId]
     );
+  };
+
+  const cancelEventJoin = (eventId: string) => {
+    setJoinedEventIds((prev) => prev.filter((id) => id !== eventId));
+  };
+
+  const dissolveEvent = (eventId: string) => {
+    setEvents((prev) =>
+      prev.map((ev) =>
+        ev.id === eventId ? { ...ev, status: "DISSOLVED" } : ev
+      )
+    );
+    setJoinedEventIds((prev) => prev.filter((id) => id !== eventId));
   };
 
   const likeProfile = (profileId: string) => {
@@ -117,10 +156,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         setUser,
+        addBlockedCompany,
+        removeBlockedCompany,
         events,
         setEvents,
         joinedEventIds,
         joinEvent,
+        cancelEventJoin,
+        dissolveEvent,
         likedProfileIds,
         likeProfile,
         chats,

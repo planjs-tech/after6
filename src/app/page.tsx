@@ -26,9 +26,13 @@ export default function MatchingHomePage() {
   const [filterCurrentOnly, setFilterCurrentOnly] = useState(false);
   const [matchPopupName, setMatchPopupName] = useState<string | null>(null);
 
-  const filteredProfiles = MOCK_PROFILES.filter((p) =>
-    filterCurrentOnly ? p.companyStatus === "VERIFIED" : true
-  );
+  const filteredProfiles = MOCK_PROFILES.filter((p) => {
+    if (filterCurrentOnly && p.companyStatus !== "VERIFIED") return false;
+    if (user.blockSameCompany && p.companyName === user.companyName)
+      return false;
+    if (user.blockedCompanies.includes(p.companyName)) return false;
+    return true;
+  });
 
   const safeIndex =
     filteredProfiles.length > 0 ? currentIndex % filteredProfiles.length : 0;
@@ -64,16 +68,17 @@ export default function MatchingHomePage() {
       }
     >
       <div className="space-y-4 p-4">
-        {/* 지인 차단 & 생활권 안내 바 */}
+        {/* 지인 및 특정 회사 차단 안내 바 */}
         <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-xs shadow-xs">
           <div className="flex items-center gap-2 text-slate-600">
             <Shield className="h-4 w-4 text-emerald-600 shrink-0" />
             <span>
-              지인{" "}
-              <strong className="text-slate-900">
-                {user.blockedPhoneCount}명
-              </strong>
-              {user.blockSameCompany ? " · 동일 회사" : ""} 자동 차단 중
+              지인 <strong className="text-slate-900">{user.blockedPhoneCount}명</strong>
+              {user.blockSameCompany ? " · 내 회사" : ""}
+              {user.blockedCompanies.length > 0
+                ? ` · 특정 회사 ${user.blockedCompanies.length}곳`
+                : ""}{" "}
+              차단 중
             </span>
           </div>
           <Link
@@ -185,8 +190,14 @@ export default function MatchingHomePage() {
           <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center">
             <Ban className="mx-auto h-8 w-8 text-slate-400" />
             <p className="mt-2 text-sm font-semibold text-slate-700">
-              조건에 맞는 추천 프로필이 없습니다.
+              차단/필터 조건에 맞는 추천 프로필이 없습니다.
             </p>
+            <Link
+              href="/profile"
+              className="mt-3 inline-block rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white"
+            >
+              차단 설정 확인하기
+            </Link>
           </div>
         )}
       </div>
