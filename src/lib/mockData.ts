@@ -5,6 +5,7 @@ export interface MatchProfile {
   nickname: string;
   age: number;
   gender: "M" | "F";
+  heightCm: number;
   companyName: string;
   companyType: "대기업/중견" | "IT/게임" | "스타트업" | "바이오/연구";
   companyStatus: CompanyStatus;
@@ -28,7 +29,6 @@ export interface Venue {
   isNewBoost?: boolean;
   rating: number;
   tags: string[];
-  /** 예약 가능한 날짜|시간 슬롯 목록 (실제 DB에서는 availability_slots 테이블) */
   availableSlots: string[];
 }
 
@@ -40,21 +40,40 @@ export interface CateringOption {
   description: string;
 }
 
+export type ApprovalMode = "INSTANT" | "HOST_APPROVAL";
+
 export interface EventConditions {
   requireCurrentEmployee: boolean;
   minAge: number;
   maxAge: number;
+  minHeightMale: number;
+  minHeightFemale: number;
   minMannerTemp: number;
+  requirePhotoReview: boolean; // 주선자만 미리 프로필 사진 확인 가능 여부
+  approvalMode: ApprovalMode; // 즉시 예약 확정 vs 주선자 확인 후 OK
+}
+
+export interface ApplicantPreview {
+  id: string;
+  nickname: string;
+  gender: "M" | "F";
+  age: number;
+  heightCm: number;
+  companyName: string;
+  mannerTemp: number;
+  avatarEmoji: string;
+  photoSummary: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
 }
 
 export interface GroupEvent {
   id: string;
   title: string;
   theme: "로테이션 소개팅" | "와인 미팅" | "보드게임" | "IT 네트워킹";
-  dateValue: string; // YYYY-MM-DD
+  dateValue: string;
   dateText: string;
   timeSlot: "19:30 ~ 21:30" | "15:00 ~ 17:00" | "18:30 ~ 20:30";
-  daysLeft: number; // 아고다식 차등 환불 계산용 D-Day
+  daysLeft: number;
   venue: Venue;
   catering: CateringOption | null;
   hostName: string;
@@ -119,6 +138,7 @@ export const MOCK_PROFILES: MatchProfile[] = [
     nickname: "지우",
     age: 29,
     gender: "F",
+    heightCm: 164,
     companyName: "네이버",
     companyType: "IT/게임",
     companyStatus: "VERIFIED",
@@ -135,6 +155,7 @@ export const MOCK_PROFILES: MatchProfile[] = [
     nickname: "서준",
     age: 31,
     gender: "M",
+    heightCm: 179,
     companyName: "카카오",
     companyType: "IT/게임",
     companyStatus: "VERIFIED",
@@ -151,6 +172,7 @@ export const MOCK_PROFILES: MatchProfile[] = [
     nickname: "하은",
     age: 27,
     gender: "F",
+    heightCm: 162,
     companyName: "비바리퍼블리카(토스)",
     companyType: "스타트업",
     companyStatus: "FORMER_EMPLOYEE",
@@ -167,6 +189,7 @@ export const MOCK_PROFILES: MatchProfile[] = [
     nickname: "민재",
     age: 32,
     gender: "M",
+    heightCm: 176,
     companyName: "넥슨코리아",
     companyType: "IT/게임",
     companyStatus: "VERIFIED",
@@ -288,7 +311,11 @@ export const MOCK_EVENTS: GroupEvent[] = [
       requireCurrentEmployee: true,
       minAge: 26,
       maxAge: 35,
+      minHeightMale: 173,
+      minHeightFemale: 158,
       minMannerTemp: 36.5,
+      requirePhotoReview: true,
+      approvalMode: "HOST_APPROVAL",
     },
     ticketPrice: 53000,
     breakdown: {
@@ -323,7 +350,11 @@ export const MOCK_EVENTS: GroupEvent[] = [
       requireCurrentEmployee: false,
       minAge: 25,
       maxAge: 34,
+      minHeightMale: 170,
+      minHeightFemale: 155,
       minMannerTemp: 36.0,
+      requirePhotoReview: false,
+      approvalMode: "INSTANT",
     },
     ticketPrice: 39000,
     breakdown: {
@@ -358,7 +389,11 @@ export const MOCK_EVENTS: GroupEvent[] = [
       requireCurrentEmployee: true,
       minAge: 27,
       maxAge: 36,
+      minHeightMale: 172,
+      minHeightFemale: 158,
       minMannerTemp: 37.0,
+      requirePhotoReview: false,
+      approvalMode: "INSTANT",
     },
     ticketPrice: 35000,
     breakdown: {
@@ -370,6 +405,33 @@ export const MOCK_EVENTS: GroupEvent[] = [
     participantCompanies: ["네이버", "카카오", "엔씨소프트", "토스"],
     avgMannerTemp: 38.6,
     status: "IN_PROGRESS",
+  },
+];
+
+export const MOCK_APPLICANTS: ApplicantPreview[] = [
+  {
+    id: "a1",
+    nickname: "도윤",
+    gender: "M",
+    age: 31,
+    heightCm: 178,
+    companyName: "네이버",
+    mannerTemp: 38.7,
+    avatarEmoji: "🐶",
+    photoSummary: "깔끔한 셔츠 차림의 야외 카페 프로필 사진 3장",
+    status: "PENDING",
+  },
+  {
+    id: "a2",
+    nickname: "수아",
+    gender: "F",
+    age: 28,
+    heightCm: 165,
+    companyName: "라인플러스",
+    mannerTemp: 39.2,
+    avatarEmoji: "🐱",
+    photoSummary: "밝은 미소의 전시회 관람 프로필 사진 2장",
+    status: "PENDING",
   },
 ];
 

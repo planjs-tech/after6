@@ -9,13 +9,17 @@ import {
   MOCK_EVENTS,
 } from "./mockData";
 
+export type JoinStatus = "PENDING_APPROVAL" | "CONFIRMED";
+
 interface UserProfileState {
   isLoggedIn: boolean;
   loginProvider: "KAKAO" | "NAVER" | "LOCAL";
   isPhoneVerified: boolean;
   isGpsVerified: boolean;
   nickname: string;
+  gender: "M" | "F";
   age: number;
+  heightCm: number;
   companyName: string;
   companyStatus: CompanyStatus;
   daysUntilExpire: number;
@@ -32,8 +36,8 @@ interface AppContextValue {
   removeBlockedCompany: (company: string) => void;
   events: GroupEvent[];
   setEvents: React.Dispatch<React.SetStateAction<GroupEvent[]>>;
-  joinedEventIds: string[];
-  joinEvent: (eventId: string) => void;
+  joinedEventStatuses: Record<string, JoinStatus>;
+  joinEvent: (eventId: string, status: JoinStatus) => void;
   cancelEventJoin: (eventId: string) => void;
   dissolveEvent: (eventId: string) => void;
   likedProfileIds: string[];
@@ -53,7 +57,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isPhoneVerified: true,
     isGpsVerified: true,
     nickname: "테드",
+    gender: "M",
     age: 30,
+    heightCm: 177,
     companyName: "판교테크랩스",
     companyStatus: "VERIFIED",
     daysUntilExpire: 142,
@@ -64,7 +70,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [events, setEvents] = useState<GroupEvent[]>(MOCK_EVENTS);
-  const [joinedEventIds, setJoinedEventIds] = useState<string[]>(["e3"]);
+  const [joinedEventStatuses, setJoinedEventStatuses] = useState<
+    Record<string, JoinStatus>
+  >({
+    e3: "CONFIRMED",
+  });
   const [likedProfileIds, setLikedProfileIds] = useState<string[]>([]);
   const [chats, setChats] = useState<ChatRoom[]>(MOCK_CHATS);
   const [reports, setReports] = useState<
@@ -89,14 +99,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  const joinEvent = (eventId: string) => {
-    setJoinedEventIds((prev) =>
-      prev.includes(eventId) ? prev : [...prev, eventId]
-    );
+  const joinEvent = (eventId: string, status: JoinStatus) => {
+    setJoinedEventStatuses((prev) => ({ ...prev, [eventId]: status }));
   };
 
   const cancelEventJoin = (eventId: string) => {
-    setJoinedEventIds((prev) => prev.filter((id) => id !== eventId));
+    setJoinedEventStatuses((prev) => {
+      const next = { ...prev };
+      delete next[eventId];
+      return next;
+    });
   };
 
   const dissolveEvent = (eventId: string) => {
@@ -105,7 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ev.id === eventId ? { ...ev, status: "DISSOLVED" } : ev
       )
     );
-    setJoinedEventIds((prev) => prev.filter((id) => id !== eventId));
+    cancelEventJoin(eventId);
   };
 
   const likeProfile = (profileId: string) => {
@@ -160,7 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removeBlockedCompany,
         events,
         setEvents,
-        joinedEventIds,
+        joinedEventStatuses,
         joinEvent,
         cancelEventJoin,
         dissolveEvent,

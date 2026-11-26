@@ -4,24 +4,32 @@ import React, { useState } from "react";
 import {
   AlertTriangle,
   Calendar,
+  Camera,
   CheckCircle2,
   Clock,
   Crown,
+  EyeOff,
   Flame,
   Lock,
   MapPin,
   Plus,
+  Ruler,
   ShieldAlert,
   Sparkles,
   Trash2,
+  UserCheck,
   Users,
   Utensils,
   X,
+  Zap,
 } from "lucide-react";
 import { AppShell, MannerTempBadge } from "@/components/AppShell";
 import {
+  ApplicantPreview,
+  ApprovalMode,
   calculateRefund,
   GroupEvent,
+  MOCK_APPLICANTS,
   MOCK_CATERINGS,
   MOCK_VENUES,
   REFUND_TIERS,
@@ -33,7 +41,7 @@ export default function EventsPage() {
     user,
     events,
     setEvents,
-    joinedEventIds,
+    joinedEventStatuses,
     joinEvent,
     cancelEventJoin,
     dissolveEvent,
@@ -42,10 +50,18 @@ export default function EventsPage() {
   } = useApp();
 
   const [themeFilter, setThemeFilter] = useState<string>("전체");
+  const [photoFilter, setPhotoFilter] = useState<
+    "ALL" | "BLIND" | "PHOTO_REVIEW"
+  >("ALL");
   const [selectedEvent, setSelectedEvent] = useState<GroupEvent | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRotationModal, setShowRotationModal] =
     useState<GroupEvent | null>(null);
+  const [hostReviewEvent, setHostReviewEvent] = useState<GroupEvent | null>(
+    null
+  );
+  const [applicants, setApplicants] =
+    useState<ApplicantPreview[]>(MOCK_APPLICANTS);
   const [cancelTargetEvent, setCancelTargetEvent] =
     useState<GroupEvent | null>(null);
   const [reportTargetEvent, setReportTargetEvent] =
@@ -60,7 +76,7 @@ export default function EventsPage() {
   const [selectedChoices, setSelectedChoices] = useState<string[]>([]);
   const [hostRatingSubmitted, setHostRatingSubmitted] = useState(false);
 
-  // Host Create Form states (실시간 파티룸 슬롯 조회 + 고정 조건)
+  // Host Create Form states
   const [newTitle, setNewTitle] = useState("");
   const [newTheme, setNewTheme] =
     useState<GroupEvent["theme"]>("로테이션 소개팅");
@@ -77,12 +93,22 @@ export default function EventsPage() {
   const [newRequireCurrent, setNewRequireCurrent] = useState(true);
   const [newMinAge, setNewMinAge] = useState(26);
   const [newMaxAge, setNewMaxAge] = useState(35);
+  const [newMinHeightMale, setNewMinHeightMale] = useState(173);
+  const [newMinHeightFemale, setNewMinHeightFemale] = useState(158);
   const [newMinTemp, setNewMinTemp] = useState(36.5);
+  const [newRequirePhotoReview, setNewRequirePhotoReview] = useState(false);
+  const [newApprovalMode, setNewApprovalMode] =
+    useState<ApprovalMode>("INSTANT");
 
   const themes = ["전체", "와인 미팅", "보드게임", "로테이션 소개팅"];
   const visibleEvents = events.filter((e) => {
     if (e.status === "DISSOLVED") return false;
-    return themeFilter === "전체" ? true : e.theme === themeFilter;
+    if (themeFilter !== "전체" && e.theme !== themeFilter) return false;
+    if (photoFilter === "BLIND" && e.conditions.requirePhotoReview)
+      return false;
+    if (photoFilter === "PHOTO_REVIEW" && !e.conditions.requirePhotoReview)
+      return false;
+    return true;
   });
 
   // 실시간 날짜/시간/장소 기반 파티룸 가용성 필터링
@@ -111,16 +137,26 @@ export default function EventsPage() {
   const calculatedTicketPrice =
     venuePerPerson + cateringPerPerson + newHostFee + platformFee;
 
-  // 조건 충족 여부 검사 함수
+  // 조건 충족 여부 검사 (나이, 키, 매너온도, 현직인증)
   const checkEligibility = (ev: GroupEvent) => {
     const reasons: string[] = [];
-    if (ev.conditions.requireCurrentEmployee && user.companyStatus !== "VERIFIED") {
+    if (
+      ev.conditions.requireCurrentEmployee &&
+      user.companyStatus !== "VERIFIED"
+    ) {
       reasons.push("현직 회사 메일 인증이 필요합니다.");
     }
     if (user.age < ev.conditions.minAge || user.age > ev.conditions.maxAge) {
       reasons.push(
         `나이 조건(${ev.conditions.minAge}~${ev.conditions.maxAge}세)에 맞지 않습니다.`
       );
+    }
+    const minH =
+      user.gender === "M"
+        ? ev.conditions.minHeightMale
+        : ev.conditions.minHeightFemale;
+    if (user.heightCm < minH) {
+      reasons.push(`키 조건(${minH}cm 이상)에 맞지 않습니다.`);
     }
     if (user.mannerTemp < ev.conditions.minMannerTemp) {
       reasons.push(
@@ -136,11 +172,20 @@ export default function EventsPage() {
       alert(`참가 조건 미충족:\n- ${reasons.join("\n- ")}`);
       return;
     }
-    joinEvent(ev.id);
-    setSelectedEvent(null);
-    setPaymentToast(
-      `[${ev.title}] 에스크로 결제가 완료되었습니다! 현장 추가 비용 요구 시 즉시 신고해 주세요.`
-    );
+
+    if (ev.conditions.approvalMode === "INSTANT") {
+      joinEvent(ev.id, "CONFIRMED");
+      setSelectedEvent(null);
+      setPaymentToast(
+        `[${ev.title}] 선착순 즉시 예약 확정! 에스크로 결제가 완료되었습니다.`
+      );
+    } else {
+      joinEvent(ev.id, "PENDING_APPROVAL");
+      setSelectedEvent(null);
+      setPaymentToast(
+        `[${ev.title}] 신청 완료! 주선자 확인(OK) 후 최종 확정됩니다. (미승인 시 100% 자동 환불)`
+      );
+    }
   };
 
   const handleCreateEvent = (e: React.FormEvent) => {
@@ -179,7 +224,11 @@ export default function EventsPage() {
         requireCurrentEmployee: newRequireCurrent,
         minAge: newMinAge,
         maxAge: newMaxAge,
+        minHeightMale: newMinHeightMale,
+        minHeightFemale: newMinHeightFemale,
         minMannerTemp: newMinTemp,
+        requirePhotoReview: newRequirePhotoReview,
+        approvalMode: newApprovalMode,
       },
       ticketPrice: calculatedTicketPrice,
       breakdown: {
@@ -213,7 +262,7 @@ export default function EventsPage() {
         </button>
       }
     >
-      <div className="space-y-4 p-4">
+      <div className="space-y-3.5 p-4">
         {/* 추가 비용 요구 금지 상단 안내 배너 */}
         <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -224,7 +273,7 @@ export default function EventsPage() {
           </div>
         </div>
 
-        {/* 신고 접수 알림 (있을 경우) */}
+        {/* 신고 접수 알림 */}
         {reports.length > 0 && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
             <strong>신고 접수됨 ({reports.length}건):</strong>{" "}
@@ -249,6 +298,29 @@ export default function EventsPage() {
           </div>
         )}
 
+        {/* 신청자 선택 필터: 사진 확인 여부 */}
+        <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white p-1.5 text-xs">
+          {[
+            { id: "ALL", label: "전체 모임" },
+            { id: "BLIND", label: "🙈 사진 비공개" },
+            { id: "PHOTO_REVIEW", label: "📷 주선자 사진확인" },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() =>
+                setPhotoFilter(opt.id as "ALL" | "BLIND" | "PHOTO_REVIEW")
+              }
+              className={`flex-1 rounded-xl py-1.5 font-semibold transition ${
+                photoFilter === opt.id
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         {/* 테마 필터 */}
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           {themes.map((t) => (
@@ -269,7 +341,7 @@ export default function EventsPage() {
         {/* 모임 카드 리스트 */}
         <div className="space-y-3.5">
           {visibleEvents.map((ev) => {
-            const isJoined = joinedEventIds.includes(ev.id);
+            const joinStatus = joinedEventStatuses[ev.id];
             const { eligible } = checkEligibility(ev);
 
             return (
@@ -282,14 +354,26 @@ export default function EventsPage() {
                     <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
                       {ev.theme}
                     </span>
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                      <Lock className="h-2.5 w-2.5" />
-                      {ev.conditions.minAge}~{ev.conditions.maxAge}세 ·{" "}
-                      {ev.conditions.minMannerTemp}°C↑
-                    </span>
-                    {ev.conditions.requireCurrentEmployee && (
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                        현직 필수
+                    {ev.conditions.approvalMode === "INSTANT" ? (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                        <Zap className="h-3 w-3" />
+                        즉시 예약
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                        <UserCheck className="h-3 w-3" />
+                        주선자 승인
+                      </span>
+                    )}
+                    {ev.conditions.requirePhotoReview ? (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                        <Camera className="h-3 w-3" />
+                        주선자만 사진확인
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        <EyeOff className="h-3 w-3" />
+                        사진 비공개
                       </span>
                     )}
                     {ev.status === "IN_PROGRESS" && (
@@ -299,7 +383,7 @@ export default function EventsPage() {
                       </span>
                     )}
                   </div>
-                  <span className="text-sm font-extrabold text-slate-900">
+                  <span className="text-sm font-extrabold text-slate-900 shrink-0">
                     {ev.ticketPrice.toLocaleString()}원
                   </span>
                 </div>
@@ -308,7 +392,25 @@ export default function EventsPage() {
                   {ev.title}
                 </h3>
 
-                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                {/* 조건 요약 라인 */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                  <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 font-medium">
+                    <Lock className="h-2.5 w-2.5" />
+                    {ev.conditions.minAge}~{ev.conditions.maxAge}세
+                  </span>
+                  <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 font-medium">
+                    <Ruler className="h-2.5 w-2.5" />
+                    남 {ev.conditions.minHeightMale}↑ / 여{" "}
+                    {ev.conditions.minHeightFemale}↑
+                  </span>
+                  {ev.conditions.requireCurrentEmployee && (
+                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700">
+                      현직 필수
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2.5 space-y-1 text-xs text-slate-600">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="h-3.5 w-3.5 text-slate-400" />
                     <span>
@@ -345,21 +447,6 @@ export default function EventsPage() {
                   </div>
                 </div>
 
-                {/* 참여 회사군 */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-1">
-                  <span className="text-[11px] text-slate-400 mr-1">
-                    참여 회사군:
-                  </span>
-                  {ev.participantCompanies.map((c) => (
-                    <span
-                      key={c}
-                      className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
-                    >
-                      {c}
-                    </span>
-                  ))}
-                </div>
-
                 {/* 액션 버튼 */}
                 <div className="mt-3.5 flex gap-2">
                   <button
@@ -368,12 +455,20 @@ export default function EventsPage() {
                   >
                     상세 · 환불 · 조건
                   </button>
-                  {isJoined ? (
+
+                  {joinStatus === "CONFIRMED" ? (
                     <button
                       onClick={() => setShowRotationModal(ev)}
                       className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-indigo-700"
                     >
-                      로테이션 · 평가 입장
+                      확정됨 · 로테이션 입장
+                    </button>
+                  ) : joinStatus === "PENDING_APPROVAL" ? (
+                    <button
+                      onClick={() => setHostReviewEvent(ev)}
+                      className="flex-1 rounded-xl bg-violet-600 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-violet-700"
+                    >
+                      승인 대기 · 주선자 심사함(데모)
                     </button>
                   ) : (
                     <button
@@ -384,7 +479,11 @@ export default function EventsPage() {
                           : "bg-slate-400"
                       }`}
                     >
-                      {eligible ? "참가 신청하기" : "참가 조건 미충족"}
+                      {eligible
+                        ? ev.conditions.approvalMode === "INSTANT"
+                          ? "바로 예약하기"
+                          : "참가 신청하기"
+                        : "참가 조건 미충족"}
                     </button>
                   )}
                 </div>
@@ -418,7 +517,7 @@ export default function EventsPage() {
               {selectedEvent.venue.name}
             </p>
 
-            {/* 고정 참가 조건 (수정 불가 안내) */}
+            {/* 고정 참가 조건 */}
             <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3.5 text-xs">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1 font-bold text-indigo-900">
@@ -437,21 +536,42 @@ export default function EventsPage() {
                   {selectedEvent.conditions.maxAge}세 (내 나이 {user.age}세)
                 </li>
                 <li>
+                  • 키: 남성 {selectedEvent.conditions.minHeightMale}cm↑ / 여성{" "}
+                  {selectedEvent.conditions.minHeightFemale}cm↑ (내 키{" "}
+                  {user.heightCm}cm)
+                </li>
+                <li>
                   • 매너온도: {selectedEvent.conditions.minMannerTemp}°C 이상
                   (내 온도 {user.mannerTemp.toFixed(1)}°C)
                 </li>
                 <li>
-                  • 직장 인증:{" "}
-                  {selectedEvent.conditions.requireCurrentEmployee
-                    ? "현직 인증자만 가능"
-                    : "현직 + 전 직장 모두 가능"}
+                  • 프로필 사진:{" "}
+                  {selectedEvent.conditions.requirePhotoReview
+                    ? "주선자만 승인 심사 시 미리 확인 (타 참가자 비공개)"
+                    : "사진 확인 없음 (모두에게 블라인드)"}
+                </li>
+                <li>
+                  • 확정 방식:{" "}
+                  {selectedEvent.conditions.approvalMode === "INSTANT"
+                    ? "선착순 즉시 예약 확정"
+                    : "주선자 확인(OK) 후 확정"}
                 </li>
               </ul>
-              {selectedEvent.isMyHosted && (
-                <div className="mt-2.5 border-t border-indigo-200 pt-2.5 flex items-center justify-between">
-                  <span className="text-[11px] text-indigo-800">
-                    조건 변경이 필요하면 방을 해산해야 합니다.
-                  </span>
+
+              <div className="mt-2.5 border-t border-indigo-200 pt-2.5 flex items-center justify-between gap-2">
+                {selectedEvent.conditions.approvalMode === "HOST_APPROVAL" && (
+                  <button
+                    onClick={() => {
+                      const target = selectedEvent;
+                      setSelectedEvent(null);
+                      setHostReviewEvent(target);
+                    }}
+                    className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white"
+                  >
+                    주선자 심사함 미리보기
+                  </button>
+                )}
+                {selectedEvent.isMyHosted && (
                   <button
                     onClick={() => {
                       dissolveEvent(selectedEvent.id);
@@ -460,13 +580,13 @@ export default function EventsPage() {
                         "모임이 해산되었습니다. 기존 신청자에게 100% 자동 환불 처리됩니다."
                       );
                     }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white"
+                    className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white ml-auto"
                   >
                     <Trash2 className="h-3 w-3" />
                     모임 해산
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* 투명한 참가비 내역 */}
@@ -536,7 +656,7 @@ export default function EventsPage() {
                 신고
               </button>
 
-              {joinedEventIds.includes(selectedEvent.id) ? (
+              {joinedEventStatuses[selectedEvent.id] ? (
                 <button
                   onClick={() => {
                     const target = selectedEvent;
@@ -553,11 +673,157 @@ export default function EventsPage() {
                   disabled={!checkEligibility(selectedEvent).eligible}
                   className="flex-1 rounded-2xl bg-rose-500 py-3 text-sm font-bold text-white shadow-md hover:bg-rose-600 disabled:bg-slate-300"
                 >
-                  {checkEligibility(selectedEvent).eligible
-                    ? `${selectedEvent.ticketPrice.toLocaleString()}원 에스크로 결제하기`
-                    : "참가 조건 미충족"}
+                  {!checkEligibility(selectedEvent).eligible
+                    ? "참가 조건 미충족"
+                    : selectedEvent.conditions.approvalMode === "INSTANT"
+                    ? `${selectedEvent.ticketPrice.toLocaleString()}원 바로 예약 확정`
+                    : `${selectedEvent.ticketPrice.toLocaleString()}원 신청 (주선자 승인 후 확정)`}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 주선자 승인 심사함 모달 (주선자만 조건에 따라 사진 미리 확인 후 OK/거절) */}
+      {hostReviewEvent && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 sm:rounded-3xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900">
+                주선자 신청자 심사함 (데모)
+              </h3>
+              <button
+                onClick={() => setHostReviewEvent(null)}
+                className="rounded-full p-1 text-slate-400"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {hostReviewEvent.conditions.requirePhotoReview
+                ? "이 모임은 [주선자만 프로필 사진 사전 확인] 설정이 켜져 있습니다. (다른 참가자는 볼 수 없습니다.)"
+                : "이 모임은 [사진 비공개] 모임이므로 주선자에게도 사진이 노출되지 않습니다."}
+            </p>
+
+            {/* 내가 신청한 경우 내 건도 상단에 표시 */}
+            {joinedEventStatuses[hostReviewEvent.id] === "PENDING_APPROVAL" && (
+              <div className="mt-3 rounded-2xl border-2 border-violet-300 bg-violet-50 p-3.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-violet-900">
+                    내 신청 건 ({user.nickname} · {user.age}세 · {user.heightCm}
+                    cm)
+                  </span>
+                  <span className="rounded-full bg-violet-200 px-2 py-0.5 text-[10px] font-bold text-violet-900">
+                    승인 대기
+                  </span>
+                </div>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    onClick={() => {
+                      joinEvent(hostReviewEvent.id, "CONFIRMED");
+                      setHostReviewEvent(null);
+                      setPaymentToast(
+                        `주선자가 [${user.nickname}]님의 참가를 OK 승인하여 예약이 최종 확정되었습니다!`
+                      );
+                    }}
+                    className="flex-1 rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white"
+                  >
+                    ✓ 주선자 OK 승인하기
+                  </button>
+                  <button
+                    onClick={() => {
+                      cancelEventJoin(hostReviewEvent.id);
+                      setHostReviewEvent(null);
+                      setPaymentToast(
+                        "주선자가 거절하여 에스크로 결제 금액이 100% 자동 환불되었습니다."
+                      );
+                    }}
+                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600"
+                  >
+                    거절(전액환불)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3 space-y-2.5">
+              {applicants.map((a) => (
+                <div
+                  key={a.id}
+                  className="rounded-2xl border border-slate-200 p-3.5 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">
+                        {hostReviewEvent.conditions.requirePhotoReview
+                          ? a.avatarEmoji
+                          : "🙈"}
+                      </span>
+                      <div>
+                        <p className="font-bold text-slate-900">
+                          {a.nickname} ({a.gender === "M" ? "남" : "여"} ·{" "}
+                          {a.age}세 · {a.heightCm}cm)
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {a.companyName} · 🌡️ {a.mannerTemp}°C
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                      {a.status === "APPROVED"
+                        ? "승인됨"
+                        : a.status === "REJECTED"
+                        ? "거절(환불)"
+                        : "대기 중"}
+                    </span>
+                  </div>
+
+                  {hostReviewEvent.conditions.requirePhotoReview ? (
+                    <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                      📷 <strong>주선자 전용 사진 미리보기:</strong>{" "}
+                      {a.photoSummary}
+                    </div>
+                  ) : (
+                    <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                      🙈 사진 비공개 모임 — 프로필 사진이 가려져 있습니다.
+                    </div>
+                  )}
+
+                  {a.status === "PENDING" && (
+                    <div className="mt-2.5 flex gap-2">
+                      <button
+                        onClick={() =>
+                          setApplicants((prev) =>
+                            prev.map((item) =>
+                              item.id === a.id
+                                ? { ...item, status: "APPROVED" }
+                                : item
+                            )
+                          )
+                        }
+                        className="flex-1 rounded-xl bg-emerald-600 py-1.5 font-bold text-white"
+                      >
+                        OK 승인
+                      </button>
+                      <button
+                        onClick={() =>
+                          setApplicants((prev) =>
+                            prev.map((item) =>
+                              item.id === a.id
+                                ? { ...item, status: "REJECTED" }
+                                : item
+                            )
+                          )
+                        }
+                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 font-bold text-rose-600"
+                      >
+                        거절
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -755,7 +1021,7 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* 주선자 모임 개설 위저드 모달 (실시간 파티룸 슬롯 조회 + 고정 조건) */}
+      {/* 주선자 모임 개설 위저드 모달 */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
           <form
@@ -881,20 +1147,18 @@ export default function EventsPage() {
                 </div>
               </div>
 
-              {/* 2단계: 참가 조건 세팅 (개설 후 변경 불가) */}
+              {/* 2단계: 참가 조건 및 승인 방식 세팅 (개설 후 변경 불가) */}
               <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1 font-bold text-indigo-900">
-                    <Lock className="h-3.5 w-3.5" />
-                    2. 참가 조건 설정 (개설 후 수정 불가)
-                  </span>
-                </div>
+                <span className="inline-flex items-center gap-1 font-bold text-indigo-900">
+                  <Lock className="h-3.5 w-3.5" />
+                  2. 참가 조건 & 승인 방식 (개설 후 수정 불가)
+                </span>
                 <p className="text-[11px] text-indigo-800">
-                  모임이 생성되면 조건을 바꿀 수 없으며, 변경을 원할 경우
-                  모임을 해산(해체)한 뒤 새로 개설해야 합니다.
+                  생성 후에는 조건을 수정할 수 없으며, 변경 시 모임을 해산해야
+                  합니다.
                 </p>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[11px] font-semibold text-slate-700">
                       최소 나이
@@ -923,31 +1187,105 @@ export default function EventsPage() {
                   </div>
                   <div>
                     <label className="text-[11px] font-semibold text-slate-700">
-                      최소 매너온도
+                      남성 최소 키 (cm)
                     </label>
                     <input
                       type="number"
-                      step={0.5}
-                      min={30}
-                      max={45}
-                      value={newMinTemp}
+                      min={155}
+                      max={195}
+                      value={newMinHeightMale}
                       onChange={(e) =>
-                        setNewMinTemp(Number(e.target.value) || 36.5)
+                        setNewMinHeightMale(Number(e.target.value) || 170)
+                      }
+                      className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      여성 최소 키 (cm)
+                    </label>
+                    <input
+                      type="number"
+                      min={145}
+                      max={180}
+                      value={newMinHeightFemale}
+                      onChange={(e) =>
+                        setNewMinHeightFemale(Number(e.target.value) || 155)
                       }
                       className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
                     />
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 pt-1 font-medium text-slate-700">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    최소 매너온도 (°C)
+                  </label>
+                  <input
+                    type="number"
+                    step={0.5}
+                    min={30}
+                    max={45}
+                    value={newMinTemp}
+                    onChange={(e) =>
+                      setNewMinTemp(Number(e.target.value) || 36.5)
+                    }
+                    className="mt-0.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 pt-0.5 font-medium text-slate-700">
                   <input
                     type="checkbox"
                     checked={newRequireCurrent}
                     onChange={(e) => setNewRequireCurrent(e.target.checked)}
                     className="h-4 w-4 accent-rose-500"
                   />
-                  현직 회사 메일 인증자만 참여 허용 (전 직장 제외)
+                  현직 회사 메일 인증자만 참여 허용
                 </label>
+
+                <label className="flex items-center gap-2 font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={newRequirePhotoReview}
+                    onChange={(e) =>
+                      setNewRequirePhotoReview(e.target.checked)
+                    }
+                    className="h-4 w-4 accent-rose-500"
+                  />
+                  주선자만 신청자 프로필 사진 미리 확인하기
+                </label>
+
+                {/* 확정 방식 선택 */}
+                <div className="pt-1">
+                  <label className="text-[11px] font-bold text-indigo-900">
+                    예약 확정 방식
+                  </label>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewApprovalMode("INSTANT")}
+                      className={`rounded-xl border py-2 px-2 text-center font-bold ${
+                        newApprovalMode === "INSTANT"
+                          ? "border-sky-500 bg-sky-50 text-sky-800"
+                          : "border-slate-200 bg-white text-slate-600"
+                      }`}
+                    >
+                      ⚡ 즉시 예약 확정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewApprovalMode("HOST_APPROVAL")}
+                      className={`rounded-xl border py-2 px-2 text-center font-bold ${
+                        newApprovalMode === "HOST_APPROVAL"
+                          ? "border-violet-500 bg-violet-50 text-violet-800"
+                          : "border-slate-200 bg-white text-slate-600"
+                      }`}
+                    >
+                      🙋 주선자 확인 후 OK
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* 테마 & 케이터링 & 정원 */}
